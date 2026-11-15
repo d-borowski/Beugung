@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beugung – Huygenssches Prinzip</title>
+<style>
+  :root {
+    --bg: #fafaf8;
+    --panel: #ffffff;
+    --ink: #1b1b1b;
+    --muted: #6b6b6b;
+    --line: #dcdcd6;
+    --elem: #8a8f98;
+    --accent: #c2410c;
+    --shadow: rgba(30, 30, 30, 0.07);
+    --focus: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151515;
+      --panel: #1e1e1e;
+      --ink: #ececec;
+      --muted: #a0a0a0;
+      --line: #383838;
+      --elem: #7d838c;
+      --accent: #fb923c;
+      --shadow: rgba(255, 255, 255, 0.06);
+      --focus: #60a5fa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+  .kicker { margin: 0; color: var(--muted); font-size: 14px; letter-spacing: .02em; }
+  h1 { margin: 4px 0 2px; font-size: clamp(24px, 4vw, 32px); line-height: 1.2; }
+  .lead { margin: 0 0 18px; color: var(--muted); }
+
+  .stage {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  canvas { display: block; width: 100%; aspect-ratio: 5 / 3; }
+
+  .transport {
+    display: flex; align-items: center; gap: 10px;
+    margin: 14px 0 10px;
+  }
+  button, select {
+    font: inherit; font-size: 15px;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 14px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--muted); }
+  button.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); min-width: 104px; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  input[type=range] { accent-color: var(--accent); }
+  #time { flex: 1; min-width: 0; }
+
+  .settings {
+    display: grid; gap: 12px 20px;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    padding: 14px 16px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+  .field select { width: 100%; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 1 / -1; font-size: 15px; }
+  .checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .checks input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+  h2 { font-size: 19px; margin: 28px 0 8px; }
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 6px; }
+  ol.steps li {
+    counter-increment: s; position: relative;
+    padding: 10px 12px 10px 46px; border-radius: 8px;
+    border: 1px solid transparent; color: var(--muted);
+    transition: background .25s, color .25s, border-color .25s;
+  }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: 12px; top: 10px;
+    width: 24px; height: 24px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 13px; font-weight: 600;
+    border: 1px solid var(--line);
+  }
+  ol.steps li.active { background: var(--panel); border-color: var(--line); color: var(--ink); }
+  ol.steps li.active::before { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .key { font-weight: 600; color: var(--accent); }
+
+  details {
+    margin-top: 24px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+  }
+  summary { cursor: pointer; font-weight: 600; }
+  details ul { padding-left: 20px; }
+  .note { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Physik Q1 · Mechanische Wellen</p>
+  <h1>Beugung von Wellen</h1>
+  <p class="lead">Erklärung mit dem Huygensschen Prinzip</p>
+
+  <div class="stage"><canvas id="c" aria-label="Animation: Ebene Wellenfronten treffen auf ein Hindernis. Elementarwellen gehen von der Öffnung aus, ihre Einhüllende reicht in den Schattenraum."></canvas></div>
+
+  <div class="transport">
+    <button id="play" class="primary">Pause</button>
+    <button id="reset">Neustart</button>
+    <input id="time" type="range" min="0" max="1000" value="0" aria-label="Zeit">
+  </div>
+
+  <div class="settings">
+    <label class="field">Darstellung
+      <select id="mode">
+        <option value="single">Einzelne Wellenfront</option>
+        <option value="train">Wellenzug</option>
+      </select>
+    </label>
+    <label class="field">Hindernis
+      <select id="obst">
+        <option value="edge">Kante (wie im Arbeitsblatt)</option>
+        <option value="wide">Breiter Spalt</option>
+        <option value="narrow">Schmaler Spalt</option>
+      </select>
+    </label>
+    <label class="field">Tempo
+      <select id="speed">
+        <option value="0.4">langsam</option>
+        <option value="1" selected>normal</option>
+        <option value="2">schnell</option>
+      </select>
+    </label>
+    <label class="field">Anzahl der Ausgangspunkte: <span id="nOut">8</span>
+      <input id="n" type="range" min="3" max="15" value="8">
+    </label>
+    <div class="checks">
+      <label><input type="checkbox" id="sElem" checked> Elementarwellen</label>
+      <label><input type="checkbox" id="sPts" checked> Ausgangspunkte</label>
+      <label><input type="checkbox" id="sEnv" checked> Neue Wellenfront</label>
+      <label><input type="checkbox" id="sShadow" checked> Schattenraum</label>
+      <label><input type="checkbox" id="sLabels" checked> Beschriftungen</label>
+    </div>
+  </div>
+
+  <h2>Was passiert?</h2>
+  <ol class="steps" id="steps">
+    <li>Ebene Wellenfronten laufen von links auf das Hindernis zu.</li>
+    <li>Erreicht eine Wellenfront die Öffnung, wird <span class="key">jeder Punkt</span> der Wellenfront zum Ausgangspunkt einer kreisförmigen <span class="key">Elementarwelle</span> – mit derselben Frequenz und Ausbreitungsgeschwindigkeit wie die ursprüngliche Welle.</li>
+    <li>Die Elementarwellen überlagern sich. Ihre <span class="key">Einhüllende</span> – die gemeinsame Tangente aller Elementarwellen – ist die neue Wellenfront.</li>
+    <li id="step4"></li>
+  </ol>
+
+  <details>
+    <summary>Das Huygenssche Prinzip</summary>
+    <ul>
+      <li>Jeder Punkt einer Wellenfront kann als Ausgangspunkt einer Elementarwelle betrachtet werden. Eine Elementarwelle ist eine kreisförmige Welle (im Raum eine kugelförmige Welle) mit derselben Frequenz und Ausbreitungsgeschwindigkeit wie die ursprüngliche Welle.</li>
+      <li>Die Elementarwellen überlagern sich. Ihre Einhüllende ergibt die neue Wellenfront.</li>
+    </ul>
+    <p class="note">Elementarwellen sind ein Modell – man sieht sie nicht einzeln.</p>
+  </details>
+</main>
+
+<script>
+(() => {
+  // Weltkoordinaten
+  const W = 1000, H = 600, X0 = 500;      // X0: Lage des Hindernisses
+  const C = 110;                           // Ausbreitungsgeschwindigkeit (Einheiten/s)
+  const LAMBDA = 80;                       // Abstand der Wellenfronten im Wellenzug
+  const START_X = 60, RMAX = 340, HOLD = 1.4;
+  const T1 = (X0 - START_X) / C;           // Zeitpunkt, an dem die Front das Hindernis erreicht
+  const T_END = T1 + RMAX / C;
+
+  const $ = id => document.getElementById(id);
+  const canvas = $('c'), ctx = canvas.getContext('2d');
+
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const S = {
+    playing: !reduce,
+    t: reduce ? T1 + 220 / C : 0,
+    mode: 'single', obst: 'edge', n: 8, speed: 1,
+    show: { elem: true, pts: true, env: true, shadow: true, labels: true }
+  };
+
+  let col = {};
+  function readColors() {
+    const cs = getComputedStyle(document.documentElement);
+    ['bg','panel','ink','muted','elem','accent','shadow'].forEach(k => col[k] = cs.getPropertyValue('--' + k).trim());
+  }
+
+  // Geometrie der Öffnung
+  function geom() {
+    if (S.obst === 'edge') {
+      return { top: null, bottom: 300, ptsTop: 40, walls: [[300, H + 20]] };
+    }
+    const half = S.obst === 'wide' ? 110 : 22;
+    const yA = 300 - half, yB = 300 + half;
+    return { top: yA, bottom: yB, ptsTop: yA, walls: [[-20, yA], [yB, H + 20]] };
+  }
+  function centers(g) {
+    const span = g.bottom - g.ptsTop;
+    const n = Math.max(2, Math.min(S.n, Math.floor(span / 11) + 1));
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(g.ptsTop + span * i / (n - 1));
+    return out;
+  }
+
+  // Zeichenhilfen
+  let scale = 1;
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(w * 0.6 * dpr);
+    scale = w / W;
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    draw();
+  }
+  const px = v => v / scale; // Bildschirm-Pixel -> Weltkoordinaten
+
+  function arrowHead(x, y, ang, size) {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - size * Math.cos(ang - 0.4), y - size * Math.sin(ang - 0.4));
+    ctx.lineTo(x - size * Math.cos(ang + 0.4), y - size * Math.sin(ang + 0.4));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function label(text, tx, ty, dx, dy) {
+    const fs = Math.max(15, px(11.5));
+    ctx.font = `${fs}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    const lines = text.split('\n');
+    const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
+    let right = dx < 0;
+    let lx = tx + dx, ly = ty + dy;
+    if (!right && lx + tw + 8 > W) { right = true; lx = tx - Math.abs(dx); }
+    if (right && lx - tw - 8 < 0) { right = false; lx = tx + Math.abs(dx); }
+    ly = Math.min(H - fs, Math.max(fs, ly));
+    // Pfeil
+    ctx.strokeStyle = col.ink; ctx.fillStyle = col.ink; ctx.lineWidth = px(1);
+    const sx = lx, sy = ly;
+    const ang = Math.atan2(ty - sy, tx - sx);
+    const ex = tx - Math.cos(ang) * px(3), ey = ty - Math.sin(ang) * px(3);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    arrowHead(ex, ey, ang, px(7));
+    // Text mit Hintergrund-Halo
+    ctx.textAlign = right ? 'right' : 'left';
+    ctx.textBaseline = 'middle';
+    const tx0 = right ? lx - px(5) : lx + px(5);
+    const lh = fs * 1.2;
+    lines.forEach((l, i) => {
+      const yy = ly + (i - (lines.length - 1) / 2) * lh;
+      ctx.lineWidth = px(5); ctx.strokeStyle = col.panel; ctx.lineJoin = 'round';
+      ctx.strokeText(l, tx0, yy);
+      ctx.fillStyle = col.ink; ctx.fillText(l, tx0, yy);
+    });
+  }
+
+  function envelopePath(r, g) {
+    ctx.beginPath();
+    if (g.top === null) {
+      ctx.moveTo(X0 + r, -20);
+    } else {
+      ctx.arc(X0, g.top, r, -Math.PI / 2, 0);
+    }
+    ctx.lineTo(X0 + r, g.bottom);
+    ctx.arc(X0, g.bottom, r, 0, Math.PI / 2);
+  }
+
+  function drawElementary(r, ys, alpha) {
+    if (r <= 0.5 || alpha <= 0) return;
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = col.elem; ctx.lineWidth = px(1.1);
+    ys.forEach(y => {
+      ctx.beginPath(); ctx.arc(X0, y, r, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function drawFrame() {
+    const g = geom(), ys = centers(g);
+    ctx.fillStyle = col.panel; ctx.fillRect(0, 0, W, H);
+
+    // Schattenraum
+    if (S.show.shadow) {
+      ctx.fillStyle = col.shadow;
+      g.walls.forEach(([a, b]) => ctx.fillRect(X0, a, W - X0, b - a));
+    }
+
+    // Wellenfronten bestimmen
+    const incoming = [], radii = [];
+    let tc;
+    if (S.mode === 'single') {
+      tc = Math.min(S.t, T_END);
+      const r = C * (tc - T1);
+      if (r < 0) incoming.push(START_X + C * tc); else radii.push(r);
+    } else {
+      const off = (C * S.t) % LAMBDA;
+      for (let k = -10; k <= 10; k++) {
+        const d = off + k * LAMBDA;
+        if (d < 0 && X0 + d > -5) incoming.push(X0 + d);
+        if (d >= 0 && d < 700) radii.push(d);
+      }
+    }
+
+    // Elementarwellen
+    if (S.show.elem) {
+      radii.forEach(r => {
+        const a = S.mode === 'single' ? 1 : Math.max(0, 1 - r / (2.2 * LAMBDA));
+        drawElementary(r, ys, a);
+      });
+    }
+
+    // Einlaufende Wellenfronten
+    ctx.strokeStyle = col.ink; ctx.lineWidth = px(2);
+    incoming.forEach(x => { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); });
+
+    // Neue Wellenfronten (Einhüllende)
+    if (S.show.env) {
+      ctx.strokeStyle = col.accent; ctx.lineWidth = px(3); ctx.lineCap = 'round';
+      radii.forEach(r => { if (r > 0.5) { envelopePath(r, g); ctx.stroke(); } });
+      ctx.lineCap = 'butt';
+    }
+
+    // Hindernis
+    ctx.fillStyle = col.ink;
+    g.walls.forEach(([a, b]) => ctx.fillRect(X0 - 5, a, 10, b - a));
+
+    // Ausgangspunkte
+    if (S.show.pts && radii.length) {
+      ctx.fillStyle = col.ink;
+      ys.forEach(y => { ctx.beginPath(); ctx.arc(X0, y, px(3.5), 0, Math.PI * 2); ctx.fill(); });
+    }
+
+    // Ausbreitungsrichtung
+    const ay = S.obst === 'edge' ? 440 : 560;
+    ctx.strokeStyle = col.ink; ctx.fillStyle = col.ink; ctx.lineWidth = px(1.5);
+    ctx.beginPath(); ctx.moveTo(30, ay); ctx.lineTo(100, ay); ctx.stroke();
+    arrowHead(104, ay, 0, px(9));
+
+    // Beschriftungen
+    if (S.show.labels) {
+      const fs = Math.max(15, px(11.5));
+      if (S.show.shadow && scale > 0.6) {
+        ctx.font = `italic ${fs}px system-ui, sans-serif`;
+        ctx.fillStyle = col.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+        ctx.fillText('Schattenraum', W - 14, H - 14);
+      }
+      label('Hindernis', X0 - 5, 530, -70, 30);
+
+      if (S.mode === 'single') {
+        if (incoming.length) label('Wellenfront', incoming[0], 80, -60, -40);
+        const r = radii[0];
+        if (r !== undefined && r > 70) {
+          const midY = g.top === null ? 160 : (g.top + g.bottom) / 2;
+          if (S.show.env) {
+            if (g.bottom - (g.top ?? 0) > 60) label('Neue Wellenfront', X0 + r, midY, 45, 0);
+            const a = 0.9;
+            label('Neue Wellenfront\n(im Schattenraum)', X0 + r * Math.cos(a), g.bottom + r * Math.sin(a), 45, 25);
+          }
+          if (S.show.elem) {
+            const yi = ys[Math.floor(ys.length / 3)];
+            const ang = -Math.asin(Math.min(0.75, Math.max(0, (yi - 34) / r)));
+            label('Elementarwellen', X0 + r * Math.cos(ang), yi + r * Math.sin(ang), -55, -6);
+          }
+        }
+      } else {
+        const x = incoming.filter(v => v > 160 && v < X0 - 40)[0];
+        if (x !== undefined) label('Wellenfronten', x, 60, -50, -30);
+      }
+    }
+    return radii.length ? radii[0] : -1;
+  }
+
+  // Erklärungsschritte
+  const stepEls = [...$('steps').children];
+  function setStep4() {
+    $('step4').innerHTML = S.obst === 'edge'
+      ? 'Am Rand des Hindernisses gibt es weiter unten keine Nachbarpunkte mehr. Die Elementarwelle des Randpunkts breitet sich ungehindert kreisförmig aus – die neue Wellenfront krümmt sich in den <span class="key">Schattenraum</span> hinein. Das nennt man <span class="key">Beugung</span>.'
+      : S.obst === 'wide'
+        ? 'An beiden Rändern der Öffnung krümmt sich die neue Wellenfront in den <span class="key">Schattenraum</span> hinein – die Welle wird an den Kanten <span class="key">gebeugt</span>. In der Mitte bleibt die Wellenfront eben.'
+        : 'Ist die Öffnung klein im Vergleich zur Wellenlänge, wirkt sie fast wie ein einzelnes Erregerzentrum: Hinter dem Spalt entsteht nahezu eine <span class="key">Kreiswelle</span>, die den ganzen Schattenraum ausfüllt – starke <span class="key">Beugung</span>.';
+  }
+  function updateSteps(r) {
+    let s = -1;
+    if (S.mode === 'single') s = r < 0 ? 0 : r < 30 ? 1 : r < 120 ? 2 : 3;
+    stepEls.forEach((li, i) => li.classList.toggle('active', S.mode === 'train' || i === s));
+  }
+
+  function draw() {
+    if (!canvas.width) return;
+    const r = drawFrame();
+    updateSteps(r);
+    if (S.mode === 'single') $('time').value = Math.round(Math.min(S.t, T_END) / T_END * 1000);
+  }
+
+  // Animation
+  let last = null;
+  function loop(ts) {
+    if (last !== null && S.playing) {
+      const dt = Math.min(0.05, (ts - last) / 1000);
+      S.t += dt * S.speed;
+      if (S.mode === 'single' && S.t > T_END + HOLD) S.t = 0;
+      draw();
+    }
+    last = ts;
+    requestAnimationFrame(loop);
+  }
+
+  // Bedienung
+  function setPlaying(p) { S.playing = p; $('play').textContent = p ? 'Pause' : 'Abspielen'; }
+  $('play').onclick = () => {
+    if (!S.playing && S.mode === 'single' && S.t >= T_END) S.t = 0;
+    setPlaying(!S.playing);
+  };
+  $('reset').onclick = () => { S.t = 0; setPlaying(true); draw(); };
+  $('time').oninput = e => { S.t = e.target.value / 1000 * T_END; setPlaying(false); draw(); };
+  $('mode').onchange = e => {
+    S.mode = e.target.value; S.t = 0;
+    $('time').disabled = S.mode === 'train';
+    setPlaying(true); draw();
+  };
+  $('obst').onchange = e => { S.obst = e.target.value; setStep4(); draw(); };
+  $('speed').onchange = e => { S.speed = +e.target.value; };
+  $('n').oninput = e => { S.n = +e.target.value; $('nOut').textContent = S.n; draw(); };
+  [['sElem','elem'],['sPts','pts'],['sEnv','env'],['sShadow','shadow'],['sLabels','labels']]
+    .forEach(([id, k]) => $(id).onchange = e => { S.show[k] = e.target.checked; draw(); });
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); draw(); });
+  window.addEventListener('resize', resize);
+
+  readColors();
+  setStep4();
+  setPlaying(S.playing);
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
