@@ -46,12 +46,13 @@
     border: 1px solid var(--line);
     border-radius: 10px;
     overflow: hidden;
+    margin: 0 auto;
   }
   canvas { display: block; width: 100%; aspect-ratio: 5 / 3; }
 
   .transport {
     display: flex; align-items: center; gap: 10px;
-    margin: 14px 0 10px;
+    margin: 14px auto 10px;
   }
   button, select {
     font: inherit; font-size: 15px;
@@ -223,7 +224,22 @@
 
   // Zeichenhilfen
   let scale = 1;
+  // Animation so groß wie möglich, aber so, dass Steuerung (und wenn möglich die Einstellungen) im Fenster sichtbar bleiben
+  function fitStage() {
+    const stage = document.querySelector('.stage'), tr = document.querySelector('.transport');
+    const settings = document.querySelector('.settings');
+    const fullW = stage.parentElement.clientWidth;
+    const top = stage.offsetTop;
+    const trH = tr.offsetHeight + 24, setH = settings.offsetHeight + 16;
+    let h = window.innerHeight - top - trH - setH;
+    if (h < 280) h = window.innerHeight - top - trH - 12;   // zu wenig Platz: nur Steuerleiste sichtbar halten
+    h = Math.max(180, h);
+    const w = Math.min(fullW, Math.floor(h * 5 / 3));
+    stage.style.maxWidth = tr.style.maxWidth = w + 'px';
+  }
+
   function resize() {
+    fitStage();
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
     canvas.width = Math.round(w * dpr);
