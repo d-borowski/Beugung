@@ -121,7 +121,7 @@
   <div class="settings">
     <label class="field">Darstellung
       <select id="mode">
-        <option value="single">Einzelne Wellenfront</option>
+        <option value="single">Schrittweise Huygens-Konstruktion</option>
         <option value="train">Wellenzug</option>
       </select>
     </label>
@@ -139,13 +139,14 @@
         <option value="2">schnell</option>
       </select>
     </label>
-    <label class="field">Anzahl der Ausgangspunkte: <span id="nOut">8</span>
+    <label class="field">Dichte der Ausgangspunkte: <span id="nOut">8</span>
       <input id="n" type="range" min="3" max="15" value="8">
     </label>
     <div class="checks">
       <label><input type="checkbox" id="sElem" checked> Elementarwellen</label>
       <label><input type="checkbox" id="sPts" checked> Ausgangspunkte</label>
       <label><input type="checkbox" id="sEnv" checked> Neue Wellenfront</label>
+      <label><input type="checkbox" id="sTrail" checked> Frühere Wellenfronten</label>
       <label><input type="checkbox" id="sShadow" checked> Schattenraum</label>
       <label><input type="checkbox" id="sLabels" checked> Beschriftungen</label>
     </div>
@@ -153,9 +154,9 @@
 
   <h2>Was passiert?</h2>
   <ol class="steps" id="steps">
-    <li>Ebene Wellenfronten laufen von links auf das Hindernis zu.</li>
-    <li>Erreicht eine Wellenfront die Öffnung, wird <span class="key">jeder Punkt</span> der Wellenfront zum Ausgangspunkt einer kreisförmigen <span class="key">Elementarwelle</span> – mit derselben Frequenz und Ausbreitungsgeschwindigkeit wie die ursprüngliche Welle.</li>
-    <li>Die Elementarwellen überlagern sich. Ihre <span class="key">Einhüllende</span> – die gemeinsame Tangente aller Elementarwellen – ist die neue Wellenfront.</li>
+    <li><span class="key">Jeder Punkt</span> der Wellenfront ist Ausgangspunkt einer kreisförmigen <span class="key">Elementarwelle</span> – mit derselben Frequenz und Ausbreitungsgeschwindigkeit wie die ursprüngliche Welle. Die Elementarwellen breiten sich um eine Wellenlänge aus.</li>
+    <li>Die Elementarwellen überlagern sich. Ihre <span class="key">Einhüllende</span> – die gemeinsame Tangente aller Elementarwellen – ist die <span class="key">neue Wellenfront</span>. Auf ihr beginnt die Konstruktion von vorn. Eine ebene Wellenfront bleibt dabei eben.</li>
+    <li>Trifft die Wellenfront auf das Hindernis, wird der blockierte Teil aufgehalten. Nur die Punkte in der <span class="key">Öffnung</span> senden noch Elementarwellen aus – auch der Punkt direkt am Rand.</li>
     <li id="step4"></li>
   </ol>
 
@@ -173,11 +174,15 @@
 (() => {
   // Weltkoordinaten
   const W = 1000, H = 600, X0 = 500;      // X0: Lage des Hindernisses
-  const C = 110;                           // Ausbreitungsgeschwindigkeit (Einheiten/s)
-  const LAMBDA = 80;                       // Abstand der Wellenfronten im Wellenzug
-  const START_X = 60, RMAX = 340, HOLD = 1.4;
-  const T1 = (X0 - START_X) / C;           // Zeitpunkt, an dem die Front das Hindernis erreicht
-  const T_END = T1 + RMAX / C;
+  const LAMBDA = 80;                       // Wellenlänge = Abstand der Wellenfronten
+  const C = 110;                           // Geschwindigkeit im Wellenzug-Modus
+
+  // Schrittweise Konstruktion
+  const KHIT = 5;                          // Front Nr. 5 liegt genau am Hindernis
+  const START_X = X0 - KHIT * LAMBDA;      // Lage der ersten Front
+  const NSTEP = 9;                         // Anzahl der Konstruktionsschritte
+  const GROW = 1.5, PAUSE = 0.8, D = GROW + PAUSE, HOLD = 1.5;
+  const T_END = NSTEP * D;
 
   const $ = id => document.getElementById(id);
   const canvas = $('c'), ctx = canvas.getContext('2d');
@@ -185,9 +190,9 @@
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const S = {
     playing: !reduce,
-    t: reduce ? T1 + 220 / C : 0,
+    t: reduce ? 6 * D + GROW + 0.1 : 0,
     mode: 'single', obst: 'edge', n: 8, speed: 1,
-    show: { elem: true, pts: true, env: true, shadow: true, labels: true }
+    show: { elem: true, pts: true, env: true, trail: true, shadow: true, labels: true }
   };
 
   let col = {};
@@ -198,19 +203,22 @@
 
   // Geometrie der Öffnung
   function geom() {
-    if (S.obst === 'edge') {
-      return { top: null, bottom: 300, ptsTop: 40, walls: [[300, H + 20]] };
-    }
+    if (S.obst === 'edge') return { top: null, bottom: 300, walls: [[300, H + 20]] };
     const half = S.obst === 'wide' ? 110 : 22;
-    const yA = 300 - half, yB = 300 + half;
-    return { top: yA, bottom: yB, ptsTop: yA, walls: [[-20, yA], [yB, H + 20]] };
+    return { top: 300 - half, bottom: 300 + half, walls: [[-20, 300 - half], [300 + half, H + 20]] };
   }
-  function centers(g) {
-    const span = g.bottom - g.ptsTop;
-    const n = Math.max(2, Math.min(S.n, Math.floor(span / 11) + 1));
-    const out = [];
-    for (let i = 0; i < n; i++) out.push(g.ptsTop + span * i / (n - 1));
-    return out;
+  const spacing = () => 260 / (S.n - 1);
+
+  // y-Werte der Ausgangspunkte in der Öffnung
+  function openingYs(g) {
+    const sp = spacing(), ys = [];
+    if (g.top === null) {
+      for (let y = g.bottom; y >= -sp / 2; y -= sp) ys.push(y);
+    } else {
+      const n = Math.max(3, Math.round((g.bottom - g.top) / sp) + 1);
+      for (let i = 0; i < n; i++) ys.push(g.top + (g.bottom - g.top) * i / (n - 1));
+    }
+    return ys;
   }
 
   // Zeichenhilfen
@@ -245,14 +253,11 @@
     if (!right && lx + tw + 8 > W) { right = true; lx = tx - Math.abs(dx); }
     if (right && lx - tw - 8 < 0) { right = false; lx = tx + Math.abs(dx); }
     ly = Math.min(H - fs, Math.max(fs, ly));
-    // Pfeil
     ctx.strokeStyle = col.ink; ctx.fillStyle = col.ink; ctx.lineWidth = px(1);
-    const sx = lx, sy = ly;
-    const ang = Math.atan2(ty - sy, tx - sx);
+    const ang = Math.atan2(ty - ly, tx - lx);
     const ex = tx - Math.cos(ang) * px(3), ey = ty - Math.sin(ang) * px(3);
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(ex, ey); ctx.stroke();
     arrowHead(ex, ey, ang, px(7));
-    // Text mit Hintergrund-Halo
     ctx.textAlign = right ? 'right' : 'left';
     ctx.textBaseline = 'middle';
     const tx0 = right ? lx - px(5) : lx + px(5);
@@ -265,89 +270,180 @@
     });
   }
 
+  // Einhüllende hinter dem Hindernis (Abstand r von der Öffnung)
   function envelopePath(r, g) {
     ctx.beginPath();
-    if (g.top === null) {
-      ctx.moveTo(X0 + r, -20);
-    } else {
-      ctx.arc(X0, g.top, r, -Math.PI / 2, 0);
-    }
+    if (g.top === null) ctx.moveTo(X0 + r, -20);
+    else ctx.arc(X0, g.top, r, -Math.PI / 2, 0);
     ctx.lineTo(X0 + r, g.bottom);
     ctx.arc(X0, g.bottom, r, 0, Math.PI / 2);
   }
 
-  function drawElementary(r, ys, alpha) {
-    if (r <= 0.5 || alpha <= 0) return;
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = col.elem; ctx.lineWidth = px(1.1);
-    ys.forEach(y => {
-      ctx.beginPath(); ctx.arc(X0, y, r, -Math.PI / 2, Math.PI / 2); ctx.stroke();
-    });
-    ctx.globalAlpha = 1;
+  // ---------- Schrittweise Huygens-Konstruktion ----------
+  // Front k: k < KHIT ebene Front vor dem Hindernis, k >= KHIT Front hinter der Öffnung
+  function frontPath(k, g) {
+    ctx.beginPath();
+    if (k < KHIT) {
+      const x = START_X + k * LAMBDA;
+      ctx.moveTo(x, 0); ctx.lineTo(x, H);
+    } else {
+      const r = (k - KHIT) * LAMBDA;
+      if (r === 0) {
+        ctx.moveTo(X0, g.top === null ? -20 : g.top); ctx.lineTo(X0, g.bottom);
+      } else envelopePath(r, g);
+    }
   }
 
-  function drawFrame() {
-    const g = geom(), ys = centers(g);
-    ctx.fillStyle = col.panel; ctx.fillRect(0, 0, W, H);
+  // Ausgangspunkte auf Front k: {x, y, phi} mit phi = Ausbreitungsrichtung
+  function frontCenters(k, g) {
+    const sp = spacing(), pts = [];
+    if (k < KHIT) {
+      const x = START_X + k * LAMBDA;
+      const j0 = Math.ceil(-300 / sp), j1 = Math.floor(300 / sp);
+      for (let j = j0; j <= j1; j++) pts.push({ x, y: 300 + j * sp, phi: 0 });
+      return pts;
+    }
+    const r = (k - KHIT) * LAMBDA;
+    openingYs(g).forEach(y => pts.push({ x: X0 + r, y, phi: 0 }));
+    if (r > 0) {
+      const M = Math.max(1, Math.round(r * Math.PI / 2 / sp));
+      for (let j = 1; j <= M; j++) {
+        const f = j * (Math.PI / 2) / M;
+        pts.push({ x: X0 + r * Math.cos(f), y: g.bottom + r * Math.sin(f), phi: f });
+        if (g.top !== null) pts.push({ x: X0 + r * Math.cos(f), y: g.top - r * Math.sin(f), phi: -f });
+      }
+    }
+    return pts.filter(p => p.y > -LAMBDA && p.y < H + LAMBDA);
+  }
 
-    // Schattenraum
-    if (S.show.shadow) {
-      ctx.fillStyle = col.shadow;
-      g.walls.forEach(([a, b]) => ctx.fillRect(X0, a, W - X0, b - a));
+  function drawSingle(g, labels) {
+    const tc = Math.min(S.t, T_END - 1e-6);
+    const k = Math.floor(tc / D), u = tc - k * D;
+    const s = Math.min(1, u / GROW) * LAMBDA;
+    const done = u >= GROW;
+
+    // frühere Wellenfronten
+    if (S.show.trail && k > 0) {
+      ctx.strokeStyle = col.muted; ctx.globalAlpha = 0.45; ctx.lineWidth = px(1.5);
+      for (let i = 0; i < k; i++) { frontPath(i, g); ctx.stroke(); }
+      ctx.globalAlpha = 1;
     }
 
-    // Wellenfronten bestimmen
-    const incoming = [], radii = [];
-    let tc;
-    if (S.mode === 'single') {
-      tc = Math.min(S.t, T_END);
-      const r = C * (tc - T1);
-      if (r < 0) incoming.push(START_X + C * tc); else radii.push(r);
-    } else {
-      const off = (C * S.t) % LAMBDA;
-      for (let k = -10; k <= 10; k++) {
-        const d = off + k * LAMBDA;
-        if (d < 0 && X0 + d > -5) incoming.push(X0 + d);
-        if (d >= 0 && d < 700) radii.push(d);
+    const pts = frontCenters(k, g);
+
+    // Elementarwellen (vor dem Hindernis links davon, danach rechts davon)
+    if (S.show.elem && s > 0.5) {
+      ctx.save();
+      ctx.beginPath();
+      if (k < KHIT) ctx.rect(-10, -10, X0 + 10, H + 20); else ctx.rect(X0 + 5, -10, W, H + 20);
+      ctx.clip();
+      ctx.strokeStyle = col.elem; ctx.lineWidth = px(1.1);
+      pts.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, s, p.phi - Math.PI / 2, p.phi + Math.PI / 2); ctx.stroke(); });
+      ctx.restore();
+    }
+
+    // aktuelle Wellenfront
+    ctx.strokeStyle = col.ink; ctx.lineWidth = px(2.2);
+    frontPath(k, g); ctx.stroke();
+
+    // neue Wellenfront (Einhüllende)
+    if (done && S.show.env) {
+      ctx.strokeStyle = col.accent; ctx.lineWidth = px(3); ctx.lineCap = 'round';
+      frontPath(k + 1, g); ctx.stroke();
+      ctx.lineCap = 'butt';
+    }
+
+    // Ausgangspunkte
+    if (S.show.pts) {
+      ctx.fillStyle = col.ink;
+      pts.forEach(p => { if (p.y > -5 && p.y < H + 5) { ctx.beginPath(); ctx.arc(p.x, p.y, px(3.5), 0, Math.PI * 2); ctx.fill(); } });
+    }
+
+    // Beschriftungen
+    if (k < KHIT) labels.push(['Wellenfront', START_X + k * LAMBDA, 70, -55, -38]);
+    if (S.show.elem && s > 35) {
+      const midY = k < KHIT ? 150 : (g.top === null ? 150 : 300);
+      const straight = pts.filter(p => p.phi === 0);
+      const p = straight.reduce((a, b) => Math.abs(b.y - midY) < Math.abs(a.y - midY) ? b : a, straight[0]);
+      if (p) labels.push(['Elementarwellen', p.x + s * Math.cos(-1.1), p.y + s * Math.sin(-1.1), 45, -38]);
+    }
+    if (done && S.show.env) {
+      if (k + 1 < KHIT) {
+        labels.push(['Neue Wellenfront', START_X + (k + 1) * LAMBDA, 240, 45, 0]);
+      } else if (k + 1 === KHIT) {
+        labels.push(['Neue Wellenfront', X0, g.top === null ? 240 : 300, 45, 0]);
+      } else {
+        const r = (k + 1 - KHIT) * LAMBDA;
+        if (g.top === null || g.bottom - g.top > 60)
+          labels.push(['Neue Wellenfront', X0 + r, g.top === null ? 200 : 300, 45, 0]);
+        labels.push(['Neue Wellenfront\n(im Schattenraum)', X0 + r * Math.cos(0.9), g.bottom + r * Math.sin(0.9), 45, 25]);
       }
     }
 
-    // Elementarwellen
-    if (S.show.elem) {
-      radii.forEach(r => {
-        const a = S.mode === 'single' ? 1 : Math.max(0, 1 - r / (2.2 * LAMBDA));
-        drawElementary(r, ys, a);
-      });
-    }
+    // passender Erklärungsschritt
+    if (k < KHIT - 1) return done ? 1 : 0;
+    if (k === KHIT - 1) return done ? 2 : 0;
+    if (k === KHIT) return done ? 3 : 2;
+    return 3;
+  }
 
-    // Einlaufende Wellenfronten
+  // ---------- Wellenzug ----------
+  function drawTrain(g, labels) {
+    const off = (C * S.t) % LAMBDA;
+    const incoming = [], radii = [];
+    for (let k = -10; k <= 10; k++) {
+      const d = off + k * LAMBDA;
+      if (d < 0 && X0 + d > -5) incoming.push(X0 + d);
+      if (d >= 0 && d < 700) radii.push(d);
+    }
+    const ys = openingYs(g).filter(y => y > -5);
+    if (S.show.elem) {
+      ctx.strokeStyle = col.elem; ctx.lineWidth = px(1.1);
+      radii.forEach(r => {
+        const a = Math.max(0, 1 - r / (2.2 * LAMBDA));
+        if (r <= 0.5 || a <= 0) return;
+        ctx.globalAlpha = a;
+        ys.forEach(y => { ctx.beginPath(); ctx.arc(X0, y, r, -Math.PI / 2, Math.PI / 2); ctx.stroke(); });
+      });
+      ctx.globalAlpha = 1;
+    }
     ctx.strokeStyle = col.ink; ctx.lineWidth = px(2);
     incoming.forEach(x => { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); });
-
-    // Neue Wellenfronten (Einhüllende)
     if (S.show.env) {
       ctx.strokeStyle = col.accent; ctx.lineWidth = px(3); ctx.lineCap = 'round';
       radii.forEach(r => { if (r > 0.5) { envelopePath(r, g); ctx.stroke(); } });
       ctx.lineCap = 'butt';
     }
+    if (S.show.pts) {
+      ctx.fillStyle = col.ink;
+      ys.forEach(y => { ctx.beginPath(); ctx.arc(X0, y, px(3.5), 0, Math.PI * 2); ctx.fill(); });
+    }
+    const x = incoming.filter(v => v > 160 && v < X0 - 40)[0];
+    if (x !== undefined) labels.push(['Wellenfronten', x, 60, -50, -30]);
+    return -1;
+  }
+
+  function drawFrame() {
+    const g = geom(), labels = [];
+    ctx.fillStyle = col.panel; ctx.fillRect(0, 0, W, H);
+
+    if (S.show.shadow) {
+      ctx.fillStyle = col.shadow;
+      g.walls.forEach(([a, b]) => ctx.fillRect(X0, a, W - X0, b - a));
+    }
+
+    const step = S.mode === 'single' ? drawSingle(g, labels) : drawTrain(g, labels);
 
     // Hindernis
     ctx.fillStyle = col.ink;
     g.walls.forEach(([a, b]) => ctx.fillRect(X0 - 5, a, 10, b - a));
 
-    // Ausgangspunkte
-    if (S.show.pts && radii.length) {
-      ctx.fillStyle = col.ink;
-      ys.forEach(y => { ctx.beginPath(); ctx.arc(X0, y, px(3.5), 0, Math.PI * 2); ctx.fill(); });
-    }
-
     // Ausbreitungsrichtung
     const ay = S.obst === 'edge' ? 440 : 560;
     ctx.strokeStyle = col.ink; ctx.fillStyle = col.ink; ctx.lineWidth = px(1.5);
-    ctx.beginPath(); ctx.moveTo(30, ay); ctx.lineTo(100, ay); ctx.stroke();
-    arrowHead(104, ay, 0, px(9));
+    ctx.beginPath(); ctx.moveTo(14, ay); ctx.lineTo(70, ay); ctx.stroke();
+    arrowHead(74, ay, 0, px(9));
 
-    // Beschriftungen
     if (S.show.labels) {
       const fs = Math.max(15, px(11.5));
       if (S.show.shadow && scale > 0.6) {
@@ -356,29 +452,9 @@
         ctx.fillText('Schattenraum', W - 14, H - 14);
       }
       label('Hindernis', X0 - 5, 530, -70, 30);
-
-      if (S.mode === 'single') {
-        if (incoming.length) label('Wellenfront', incoming[0], 80, -60, -40);
-        const r = radii[0];
-        if (r !== undefined && r > 70) {
-          const midY = g.top === null ? 160 : (g.top + g.bottom) / 2;
-          if (S.show.env) {
-            if (g.bottom - (g.top ?? 0) > 60) label('Neue Wellenfront', X0 + r, midY, 45, 0);
-            const a = 0.9;
-            label('Neue Wellenfront\n(im Schattenraum)', X0 + r * Math.cos(a), g.bottom + r * Math.sin(a), 45, 25);
-          }
-          if (S.show.elem) {
-            const yi = ys[Math.floor(ys.length / 3)];
-            const ang = -Math.asin(Math.min(0.75, Math.max(0, (yi - 34) / r)));
-            label('Elementarwellen', X0 + r * Math.cos(ang), yi + r * Math.sin(ang), -55, -6);
-          }
-        }
-      } else {
-        const x = incoming.filter(v => v > 160 && v < X0 - 40)[0];
-        if (x !== undefined) label('Wellenfronten', x, 60, -50, -30);
-      }
+      labels.forEach(l => label(...l));
     }
-    return radii.length ? radii[0] : -1;
+    return step;
   }
 
   // Erklärungsschritte
@@ -390,16 +466,13 @@
         ? 'An beiden Rändern der Öffnung krümmt sich die neue Wellenfront in den <span class="key">Schattenraum</span> hinein – die Welle wird an den Kanten <span class="key">gebeugt</span>. In der Mitte bleibt die Wellenfront eben.'
         : 'Ist die Öffnung klein im Vergleich zur Wellenlänge, wirkt sie fast wie ein einzelnes Erregerzentrum: Hinter dem Spalt entsteht nahezu eine <span class="key">Kreiswelle</span>, die den ganzen Schattenraum ausfüllt – starke <span class="key">Beugung</span>.';
   }
-  function updateSteps(r) {
-    let s = -1;
-    if (S.mode === 'single') s = r < 0 ? 0 : r < 30 ? 1 : r < 120 ? 2 : 3;
+  function updateSteps(s) {
     stepEls.forEach((li, i) => li.classList.toggle('active', S.mode === 'train' || i === s));
   }
 
   function draw() {
     if (!canvas.width) return;
-    const r = drawFrame();
-    updateSteps(r);
+    updateSteps(drawFrame());
     if (S.mode === 'single') $('time').value = Math.round(Math.min(S.t, T_END) / T_END * 1000);
   }
 
@@ -432,7 +505,7 @@
   $('obst').onchange = e => { S.obst = e.target.value; setStep4(); draw(); };
   $('speed').onchange = e => { S.speed = +e.target.value; };
   $('n').oninput = e => { S.n = +e.target.value; $('nOut').textContent = S.n; draw(); };
-  [['sElem','elem'],['sPts','pts'],['sEnv','env'],['sShadow','shadow'],['sLabels','labels']]
+  [['sElem','elem'],['sPts','pts'],['sEnv','env'],['sTrail','trail'],['sShadow','shadow'],['sLabels','labels']]
     .forEach(([id, k]) => $(id).onchange = e => { S.show[k] = e.target.checked; draw(); });
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); draw(); });
